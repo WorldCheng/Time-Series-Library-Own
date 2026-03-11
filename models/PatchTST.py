@@ -4,6 +4,7 @@ from layers.Transformer_EncDec import Encoder, EncoderLayer
 from layers.SelfAttention_Family import FullAttention, AttentionLayer
 from layers.Embed import PatchEmbedding
 
+#变化张量维度，Transpose(0, 2)是吧[112, 12, 128] 变成 [128, 12, 112]
 class Transpose(nn.Module):
     def __init__(self, *dims, contiguous=False): 
         super().__init__()
@@ -13,6 +14,11 @@ class Transpose(nn.Module):
         else: return x.transpose(*self.dims)
 
 
+"""
+这个 FlattenHead 模块是 PatchTST 架构中的最后一步。它的任务是：把 Transformer 提取到的抽象、高维的“特征块”，
+直接映射成我们能看懂的“未来预测值”。最终输出形状：[16, 96, 7] （对应 [bs, pred_len, n_vars]）。16张表，
+96行，7列。
+"""
 class FlattenHead(nn.Module):
     def __init__(self, n_vars, nf, target_window, head_dropout=0):
         super().__init__()
@@ -48,7 +54,7 @@ class Model(nn.Module):
         self.patch_embedding = PatchEmbedding(
             configs.d_model, patch_len, stride, padding, configs.dropout)
 
-        # Encoder
+        # Encoder，自注意力
         self.encoder = Encoder(
             [
                 EncoderLayer(
@@ -64,7 +70,7 @@ class Model(nn.Module):
             norm_layer=nn.Sequential(Transpose(1,2), nn.BatchNorm1d(configs.d_model), Transpose(1,2))
         )
 
-        # Prediction Head
+        # Prediction Head，模型会根据你的 task_name（任务名称）来决定安装什么样的“头”
         self.head_nf = configs.d_model * \
                        int((configs.seq_len - patch_len) / stride + 2)
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
